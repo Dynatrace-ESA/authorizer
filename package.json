@@ -1,5 +1,5 @@
 {
-  "name": "@dt-esa/express-sso",
+  "name": "@dt-esa/authorizer",
   "version": "1.0.0",
   "description": "",
   "main": "./dist/index.js",
@@ -14,14 +14,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Dynatrace-ESA/express-sso.git"
+    "url": "git+https://github.com/Dynatrace-ESA/authorizer.git"
   },
   "author": "Dynatrace ESA",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/Dynatrace-ESA/express-sso/issues"
+    "url": "https://github.com/Dynatrace-ESA/authorizer/issues"
   },
-  "homepage": "https://github.com/Dynatrace-ESA/express-sso#readme",
+  "homepage": "https://github.com/Dynatrace-ESA/authorizer#readme",
   "devDependencies": {
     "typescript": "^4.5.4"
   },
