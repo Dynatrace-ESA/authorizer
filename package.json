@@ -1,0 +1,37 @@
+{
+  "name": "@dt-esa/express-sso",
+  "version": "1.0.0",
+  "description": "",
+  "main": "./dist/index.js",
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Dynatrace-ESA/express-sso.git"
+  },
+  "author": "Dynatrace ESA",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/Dynatrace-ESA/express-sso/issues"
+  },
+  "homepage": "https://github.com/Dynatrace-ESA/express-sso#readme",
+  "devDependencies": {
+    "typescript": "^4.5.4"
+  },
+  "dependencies": {
+    "@dt-esa/platform-constants": "^1.0.0",
+    "@types/node": "^17.0.2",
+    "axios": "^0.24.0",
+    "express": "^4.17.2",
+    "passport": "^0.5.2",
+    "passport-azure-ad": "^4.3.1",
+    "passport-saml": "^3.2.0"
+  }
+}
