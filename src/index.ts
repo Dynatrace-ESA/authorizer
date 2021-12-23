@@ -59,7 +59,7 @@ function getTokenPermissions(token: string): Promise<any> {
  * 
  * @returns 
  */
-export const AuthorizationHandler = (options: AuthorizatonHandlerOptions) => {
+export const Authenticate = (options: AuthorizatonHandlerOptions) => {
 
     const { mode, clientConnectionPort }: AuthorizatonHandlerOptions = options;
 	const router = express.Router();
@@ -315,7 +315,7 @@ export const AuthorizationHandler = (options: AuthorizatonHandlerOptions) => {
  * authenticated user. If a permission is missing, it will reject the transaction.
  * @param permissions Permission ID strings.
  */
-export const requireAuthorization = (permissions: Array<string> = []) => {
+export const Authorizer = (permissions: Array<string> = []) => {
     return (req: any, res, next) => {
 
 		if (!req._authorizedScopes) {
