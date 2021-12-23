@@ -9,14 +9,10 @@ import * as SamlStrategy from "passport-saml";
 
 export type AuthorizatonHandlerOptions = {
 	mode: 'azure' | 'saml' | 'client' | 'dynatrace',
-	endpoint?: string,
 	authorizations?: Map<string, Array<string>>,
 	saml?: any & {},
-	azure?: any & {}
-};
-
-const authorizationDefaults: AuthorizatonHandlerOptions = {
-	mode: 'dynatrace'
+	azure?: any & {},
+	clientConnectionPort?: number
 };
 
 function getTokenPermissions(token: string): Promise<any> {
@@ -35,9 +31,37 @@ function getTokenPermissions(token: string): Promise<any> {
     );
 }
 
+/**
+ * Connect-style middleware that sets up SSO authorization via passport.
+ * 
+ * 
+ * @param options 
+ * ```ts
+ * type AuthorizatonHandlerOptions = {
+ * 	   mode: 
+ * 			 "client"    | // Use a seperate webserver running this middleware to authenticate & authorize transactions.
+ * 			 "dynatrace" | // Use a Dynatrace instance to authenticate transactions and provide authorization.
+ * 			 "azure"     | // Use Azure App Registration for Authentication. Authorization specified in `authorizations`.
+ * 			 "saml",       // Use a generic SAML configuration for Authentication. Authorization specified in `authorizations`.
+ * 	   authorizations?: Map<string, Array<string>>, // For `azure` and `saml` modes. An object containing Authorizations to apply.
+ * 			// e.g.
+ * 			// {
+ * 			//     "grace.hopper@example.com": ["ReadConfig", "WriteConfig", "logs.read"],
+ * 			//     "ryan.dahl@example.com":    ["WriteConfig", "logs.read"],
+ * 			//     "brendan.eich@example.com": ["ReadConfig", "logs.read"],
+ * 			// ...
+ * 			// }
+ *     saml?: Object,      // SAML configuration object provided to "passport-saml"
+ *     azure?: Object,     // Azure configuration object provided to "passport-azure-ad"
+ *     clientConnectionPort?: number, // When mode is `client`, the port that the seperate webserver authorizing transactions is running on.
+ * }
+ * ```
+ * 
+ * @returns 
+ */
 export const AuthorizationHandler = (options: AuthorizatonHandlerOptions) => {
 
-    const { mode }: AuthorizatonHandlerOptions = { ...authorizationDefaults, ...options };
+    const { mode, clientConnectionPort }: AuthorizatonHandlerOptions = options;
 	const router = express.Router();
 
 	let usercache = {};
@@ -81,7 +105,7 @@ export const AuthorizationHandler = (options: AuthorizatonHandlerOptions) => {
 					// TODO: TBD
 					const email = req.user?._json?.preferred_username;
 					req._username = email;
-					req._authorizedScopes = options.authorizations[email];
+					req._authorizedScopes = options.authorizations ? options.authorizations[email] : [];
 				}
 				next();
 			});
@@ -125,7 +149,7 @@ export const AuthorizationHandler = (options: AuthorizatonHandlerOptions) => {
 					// TODO: TBD
 					const email = req.user?.nameID;
 					req._username = email;
-					req._authorizedScopes = options.authorizations[email];
+					req._authorizedScopes = options.authorizations ? options.authorizations[email] : [];
 				}
 				next();
 			});
@@ -148,7 +172,7 @@ export const AuthorizationHandler = (options: AuthorizatonHandlerOptions) => {
 				
 			
 				axios
-					.get(`https://127.0.0.1:6800/authorization`, {
+					.get(`https://127.0.0.1:${clientConnectionPort}/authorization`, {
 						httpsAgent: new https.Agent({
 							rejectUnauthorized: false
 						}),
@@ -167,11 +191,13 @@ export const AuthorizationHandler = (options: AuthorizatonHandlerOptions) => {
 		}
 		case 'dynatrace': { 
 			router.use((req: any, res, next) => {
+
 				if(!req.header('Authorization')) return next();
 
 				const auth:  string = req.header('Authorization').replace('Basic ', '');    
 				const token: string = Buffer.from(auth, 'base64').toString();
 
+				// Quickly check that the token is in Dynatrace format.
 				if(dynatraceTokenRegex.test(token)){
 
 					// If we have a token AND it's been cached for longer than 30 minutes, purge it.
@@ -285,11 +311,13 @@ export const AuthorizationHandler = (options: AuthorizatonHandlerOptions) => {
 };
 
 /**
- * 
- * @param permissions 
+ * Connect-style middleware that asserts all permissions are satisfied by the
+ * authenticated user. If a permission is missing, it will reject the transaction.
+ * @param permissions Permission ID strings.
  */
 export const requireAuthorization = (permissions: Array<string> = []) => {
     return (req: any, res, next) => {
+
 		if (!req._authorizedScopes) {
             throw {
                 status: 401,
