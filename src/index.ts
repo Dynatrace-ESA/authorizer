@@ -6,6 +6,8 @@ import https from "https";
 import passport from 'passport';
 import { OIDCStrategy } from "passport-azure-ad";
 import * as SamlStrategy from "passport-saml";
+import { ScopeMap } from "./dynatrace-scopes";
+
 
 export interface PermissionMap {
 	[key: string]: Array<string>;
@@ -17,7 +19,7 @@ export type AuthenticationOptions = {
 
 	clientConnectionPort?: number,
 	dynatraceEndpoint?: string,
-	scopeMappings?: PermissionMap,
+	scopeMappings?: ScopeMap,
 
 	saml?: any & {},
 	azure?: any & {}
