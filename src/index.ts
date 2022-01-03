@@ -7,16 +7,18 @@ import passport from 'passport';
 import { OIDCStrategy } from "passport-azure-ad";
 import * as SamlStrategy from "passport-saml";
 
-export type AuthorizatonHandlerOptions = {
+export type AuthenticationOptions = {
 	mode: 'azure' | 'saml' | 'client' | 'dynatrace',
 	authorizations?: Map<string, Array<string>>,
+
+	clientConnectionPort?: number,
+	dynatraceEndpoint?: string,
+
 	saml?: any & {},
-	azure?: any & {},
-	clientConnectionPort?: number
+	azure?: any & {}
 };
 
-function getTokenPermissions(token: string): Promise<any> {
-    const dtUrl: string = globalThis.config.dtUrl;
+function getTokenPermissions(dtUrl: string, token: string): Promise<any> {
     console.info(`Checking token permissions via ${dtUrl}api/v1/tokens/lookup/${token.replace(/\..+$/, '')}`);
     
     return axios.post(dtUrl + `api/v1/tokens/lookup`, { token },
@@ -54,14 +56,14 @@ function getTokenPermissions(token: string): Promise<any> {
  *     saml?: Object,      // SAML configuration object provided to "passport-saml"
  *     azure?: Object,     // Azure configuration object provided to "passport-azure-ad"
  *     clientConnectionPort?: number, // When mode is `client`, the port that the seperate webserver authorizing transactions is running on.
+ *     dynatraceEndpoint?:    string  // The URL that the Authorizer will check against for Dynatrace Authorization.
  * }
  * ```
  * 
- * @returns 
  */
-export const authorize = (options: AuthorizatonHandlerOptions) => {
+export const authentication = (options: AuthenticationOptions) => {
 
-    const { mode, clientConnectionPort }: AuthorizatonHandlerOptions = options;
+    const { mode, clientConnectionPort }: AuthenticationOptions = options;
 	const router = express.Router();
 
 	let usercache = {};
@@ -198,7 +200,7 @@ export const authorize = (options: AuthorizatonHandlerOptions) => {
 				const token: string = Buffer.from(auth, 'base64').toString();
 
 				// Quickly check that the token is in Dynatrace format.
-				if(dynatraceTokenRegex.test(token)){
+				if(dynatraceTokenRegex.test(token)) {
 
 					// If we have a token AND it's been cached for longer than 30 minutes, purge it.
 					// This keeps us from caching tokens indefinitely.
@@ -208,13 +210,13 @@ export const authorize = (options: AuthorizatonHandlerOptions) => {
 						delete usercache[token];
 					}
 
-					if(usercache[token]){
+					if(usercache[token]) {
 						req._username = token.length > 40 ? token.split('.').slice(0,2).join('.') : (token.slice(0,4) + "*****************");
 						req._authorizedScopes = usercache[token];
 						return next();
 					}
 					else {
-						return getTokenPermissions(token).then(({ data }) => {
+						return getTokenPermissions(options.dynatraceEndpoint, token).then(({ data }) => {
 							if (!data) {
 								throw { 
 									status: 401, 
@@ -313,9 +315,12 @@ export const authorize = (options: AuthorizatonHandlerOptions) => {
 /**
  * Connect-style middleware that asserts all permissions are satisfied by the
  * authenticated user. If a permission is missing, it will reject the transaction.
- * @param permissions Permission ID strings.
+ * @param permissions A list of required Permissions or Scopes an authorized part must have.
+ * 
+ * - Invoking this method with an empty array or no permissions specified will simply ensure 
+ * that the user is authenticated.
  */
-export const authentication = (permissions: Array<string> = []) => {
+export const authorize = (permissions: Array<string> = []) => {
     return (req: any, res, next) => {
 
 		if (!req._authorizedScopes) {
