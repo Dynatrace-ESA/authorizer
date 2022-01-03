@@ -7,12 +7,17 @@ import passport from 'passport';
 import { OIDCStrategy } from "passport-azure-ad";
 import * as SamlStrategy from "passport-saml";
 
+export interface PermissionMap {
+	[key: string]: Array<string>;
+}
+
 export type AuthenticationOptions = {
 	mode: 'azure' | 'saml' | 'client' | 'dynatrace',
-	authorizations?: Map<string, Array<string>>,
+	authorizations?: PermissionMap,
 
 	clientConnectionPort?: number,
 	dynatraceEndpoint?: string,
+	scopeMappings?: PermissionMap,
 
 	saml?: any & {},
 	azure?: any & {}
@@ -42,6 +47,7 @@ function getTokenPermissions(dtUrl: string, token: string): Promise<any> {
  * type AuthorizatonHandlerOptions = {
  * 	   mode: 
  * 			 "client"    | // Use a seperate webserver running this middleware to authenticate & authorize transactions.
+ * 						   // If `authorizations` is specified in both the client and server, the resulting request will have the permissions from both.
  * 			 "dynatrace" | // Use a Dynatrace instance to authenticate transactions and provide authorization.
  * 			 "azure"     | // Use Azure App Registration for Authentication. Authorization specified in `authorizations`.
  * 			 "saml",       // Use a generic SAML configuration for Authentication. Authorization specified in `authorizations`.
@@ -57,16 +63,29 @@ function getTokenPermissions(dtUrl: string, token: string): Promise<any> {
  *     azure?: Object,     // Azure configuration object provided to "passport-azure-ad"
  *     clientConnectionPort?: number, // When mode is `client`, the port that the seperate webserver authorizing transactions is running on.
  *     dynatraceEndpoint?:    string  // The URL that the Authorizer will check against for Dynatrace Authorization.
+ *	   scopeMappings?: Map<string, Array<string>>, // A mapping of scope ID from the Dynatrace API to your router. This is only used in "dynatrace" mode.
+ * 
  * }
  * ```
  * 
+ * 
+ * This will export an express router with several route handlers:
+ *  - `login`         (redirect to login provider)
+ *  - `code`          (recieve the SAML/OpenID/Oauth response)
+ *  - `logout`        (log user out & redirect back to root)
+ *  - `authorization` (endpoint to check authorization)
+ * 
+ * All subsequent requests in the chain will be decorated with the following properties:
+ *  - `_username`:         string
+ *  - `_scopeMapping`:     Map<string, Array<string>>
+ *  - `_authorizedScopes`: Array<string>
  */
 export const authentication = (options: AuthenticationOptions) => {
 
     const { mode, clientConnectionPort }: AuthenticationOptions = options;
 	const router = express.Router();
 
-	let usercache = {};
+	let usercache: PermissionMap = {};
 
 	let passportMethod: string;
 
@@ -184,8 +203,15 @@ export const authentication = (options: AuthenticationOptions) => {
 					})
 					.then(response => {
 						const data: any = response.data;
+						
+						// If we have authorizations specified in client mode, then join them with the 
+						// authorizations specified from the server.
+						const locallyAppliedPermissions = options.authorizations 
+														? options.authorizations[data.name] 
+														: [] || []; // Always default as an empty array.
+
 						req._username = data.name;
-						req._authorizedScopes = data.permissions;
+						req._authorizedScopes = data.permissions.concat(locallyAppliedPermissions);
 						return next();
 					});
 			});
@@ -205,6 +231,7 @@ export const authentication = (options: AuthenticationOptions) => {
 					// If we have a token AND it's been cached for longer than 30 minutes, purge it.
 					// This keeps us from caching tokens indefinitely.
 					if (usercache[token] && 
+						// @ts-expect-error
 					 	((new Date().getTime() - usercache[token]._storeTime) > 30 * 60 * 1000)) {
 
 						delete usercache[token];
@@ -213,6 +240,7 @@ export const authentication = (options: AuthenticationOptions) => {
 					if(usercache[token]) {
 						req._username = token.length > 40 ? token.split('.').slice(0,2).join('.') : (token.slice(0,4) + "*****************");
 						req._authorizedScopes = usercache[token];
+						req._scopeMapping = options.scopeMappings;
 						return next();
 					}
 					else {
@@ -243,6 +271,7 @@ export const authentication = (options: AuthenticationOptions) => {
 							
 							req._username = token.length > 40 ? token.split('.').slice(0,2).join('.') : (token.slice(0,4) + "*****************");
 							req._authorizedScopes = usercache[token] = data.scopes;
+							req._scopeMapping = options.scopeMappings;
 	
 							next();
 						});
@@ -293,16 +322,30 @@ export const authentication = (options: AuthenticationOptions) => {
 	// Single endpoint to get authorized user permissions.
 	router.get('/authorization', (req: any, res, next) => {
 
-		// Flat out skip authorization requests in Client mode.
+		// Skip authorization requests in Client mode.
 		if (mode == "client") {
-			next();
+			return next();
 		}
 
-		if (req._authorizedScopes) return res.send({
-			name: req._username,
-			permissions: req._authorizedScopes
-		});
+		// Calculate and return all of the authorized scopes.
+		if (req._authorizedScopes) {
+			const scopeMapping: PermissionMap = req._scopeMapping || {};
+			const authorizedScopes = req._authorizedScopes;
 
+			// Calculate ALL grants the request has if there is a mapping specified.
+			const mappedScopes = Object.keys(scopeMapping).flatMap(key => {
+				return authorizedScopes[key] ? scopeMapping[key] : [];
+			});
+
+			const userScopes = authorizedScopes.concat(mappedScopes);
+
+			return res.send({
+				name: req._username,
+				permissions: userScopes
+			});
+		}
+
+		// Our request isn't authorized. Reject.
 		throw {
 			status: 401,
 			message: 'Authorization could not be established.',
@@ -323,14 +366,23 @@ export const authentication = (options: AuthenticationOptions) => {
 export const authorize = (permissions: Array<string> = []) => {
     return (req: any, res, next) => {
 
+		// Our request isn't authorized: Reject.
 		if (!req._authorizedScopes) {
             throw {
                 status: 401,
-                message: 'Authorization credentials not provided.',
+				message: 'Authorization could not be established.',
             };
 		}
 
-        const userScopes = req._authorizedScopes;
+		const scopeMapping: PermissionMap = req._scopeMapping || {};
+		const authorizedScopes = req._authorizedScopes;
+
+		// Calculate ALL grants the request has if there is a mapping specified.
+		const mappedScopes = Object.keys(scopeMapping).flatMap(key => {
+			return authorizedScopes[key] ? scopeMapping[key] : [];
+		});
+
+		const userScopes = authorizedScopes.concat(mappedScopes);
         const missingScopes = permissions.filter(p => !userScopes.includes(p));
 
         // We have all of the scopes we need.
