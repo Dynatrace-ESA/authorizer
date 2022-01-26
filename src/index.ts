@@ -295,7 +295,7 @@ export const authentication = (options: AuthenticationOptions) => {
 							req._scopeMapping = options.scopeMappings;
 	
 							next();
-						});
+						}).catch(next);
 					}
 				}
 				else {
