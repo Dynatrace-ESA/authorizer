@@ -368,10 +368,10 @@ export const authentication = (options: AuthenticationOptions) => {
 		}
 
 		// Our request isn't authorized. Reject.
-		throw {
+		next({
 			status: 401,
 			message: 'Authorization could not be established.',
-		};
+		});
 	});
 
 	return router;
@@ -390,10 +390,10 @@ export const authorize = (permissions: Array<string> = []) => {
 
 		// Our request isn't authorized: Reject.
 		if (!req._authorizedScopes) {
-            throw {
-                status: 401,
+			return next({
+				status: 401,
 				message: 'Authorization could not be established.',
-            };
+			});
 		}
 
 		const scopeMapping: PermissionMap = req._scopeMapping || {};
@@ -413,10 +413,10 @@ export const authorize = (permissions: Array<string> = []) => {
         } 
         // We aren't allowed to do this.
         else {
-            throw {
-                status: 403,
-                message: 'User does not have authorization to access this resource.'
-            };
+			return next({
+				status: 403,
+				message: 'User does not have authorization to access this resource.'
+			});
         }
 	};
 }
