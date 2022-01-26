@@ -228,82 +228,87 @@ export const authentication = (options: AuthenticationOptions) => {
 		case 'dynatrace': { 
 			router.use((req: any, res, next) => {
 
-				if(!req.header('Authorization')) return next();
+				if (!req.header('Authorization')) return next();
 
-				const auth:  string = req.header('Authorization').replace('Basic ', '');    
-				const token: string = Buffer.from(auth, 'base64').toString();
-
-				// Quickly check that the token is in Dynatrace format.
-				if(dynatraceTokenRegex.test(token)) {
-
-					// If we have a token AND it's been cached for longer than 30 minutes, purge it.
-					// This keeps us from caching tokens indefinitely.
-					if (usercache[token] && 
-						// @ts-expect-error
-					 	((new Date().getTime() - usercache[token]._storeTime) > 30 * 60 * 1000)) {
-
-						delete usercache[token];
-					}
-
-					const tokenId = token.length > 40 ? token.split('.').slice(0, 2).join('.') : (token.slice(0, 4) + "*****************");
-
-					if(usercache[token]) {
-						req._username = tokenId;
-						req._authorizedScopes = usercache[token];
-						req._scopeMapping = options.scopeMappings;
-						return next();
+				try {
+					const auth:  string = req.header('Authorization').replace('Basic ', '');    
+					const token: string = Buffer.from(auth, 'base64').toString();
+	
+					// Quickly check that the token is in Dynatrace format.
+					if(dynatraceTokenRegex.test(token)) {
+	
+						// If we have a token AND it's been cached for longer than 30 minutes, purge it.
+						// This keeps us from caching tokens indefinitely.
+						if (usercache[token] && 
+							// @ts-expect-error
+							 ((new Date().getTime() - usercache[token]._storeTime) > 30 * 60 * 1000)) {
+	
+							delete usercache[token];
+						}
+	
+						const tokenId = token.length > 40 ? token.split('.').slice(0, 2).join('.') : (token.slice(0, 4) + "*****************");
+	
+						if(usercache[token]) {
+							req._username = tokenId;
+							req._authorizedScopes = usercache[token];
+							req._scopeMapping = options.scopeMappings;
+							return next();
+						}
+						else {
+							let dtUrl = options.dynatraceEndpoint;
+							if (!dtUrl.endsWith('/')) dtUrl += '/';
+							if (!dtUrl.startsWith('https://')) dtUrl = "https://" + dtUrl;
+	
+							console.info(`Checking token permissions via ${dtUrl}api/v1/tokens/lookup/${tokenId}`);
+	
+							return getTokenPermissions(dtUrl, token, options.customAxios).then(({ data }) => {
+								console.info(`Recieved token permissions via ${dtUrl}api/v1/tokens/lookup/${tokenId}`);
+	
+								if (!data) {
+									console.warn(`Failed to validate token ${dtUrl}api/v1/tokens/lookup/${tokenId}`);
+									throw { 
+										status: 401, 
+										message: "Could not validate token" 
+									};
+								}
+		
+								if (data.revoked == true) {
+									console.warn(`Token is revoked ${dtUrl}api/v1/tokens/lookup/${tokenId}`);
+									throw { 
+										status: 401, 
+										message: "Token is revoked" 
+									};
+								}
+		
+								if (data.expires && (data.expires > new Date().getTime())) {
+									console.warn(`Token is expired ${dtUrl}api/v1/tokens/lookup/${tokenId}`);
+									throw { 
+										status: 401, 
+										message: "Token is expired" 
+									};
+								}
+	
+								// Timestamp when this was added into the cache
+								data.scopes._storeTime = new Date().getTime();
+								
+								req._username = tokenId;
+								req._authorizedScopes = usercache[token] = data.scopes;
+								req._scopeMapping = options.scopeMappings;
+		
+								next();
+							});
+						}
 					}
 					else {
-						let dtUrl = options.dynatraceEndpoint;
-						if (!dtUrl.endsWith('/')) dtUrl += '/';
-						if (!dtUrl.startsWith('https://')) dtUrl = "https://" + dtUrl;
-
-						console.info(`Checking token permissions via ${dtUrl}api/v1/tokens/lookup/${tokenId}`);
-
-						return getTokenPermissions(dtUrl, token, options.customAxios).then(({ data }) => {
-							console.info(`Recieved token permissions via ${dtUrl}api/v1/tokens/lookup/${tokenId}`);
-
-							if (!data) {
-								console.warn(`Failed to validate token ${dtUrl}api/v1/tokens/lookup/${tokenId}`);
-								throw { 
-									status: 401, 
-									message: "Could not validate token" 
-								};
-							}
-	
-							if (data.revoked == true) {
-								console.warn(`Token is revoked ${dtUrl}api/v1/tokens/lookup/${tokenId}`);
-								throw { 
-									status: 401, 
-									message: "Token is revoked" 
-								};
-							}
-	
-							if (data.expires && (data.expires > new Date().getTime())) {
-								console.warn(`Token is expired ${dtUrl}api/v1/tokens/lookup/${tokenId}`);
-								throw { 
-									status: 401, 
-									message: "Token is expired" 
-								};
-							}
-
-							// Timestamp when this was added into the cache
-							data.scopes._storeTime = new Date().getTime();
-							
-							req._username = tokenId;
-							req._authorizedScopes = usercache[token] = data.scopes;
-							req._scopeMapping = options.scopeMappings;
-	
-							next();
-						});
+						// Invalid or missing API token
+						throw {
+							status: 401,
+							message: "Invalid Credentials"
+						}
 					}
 				}
-				else {
-					// Invalid or missing API token
-					throw {
-						status: 401,
-						message: "Invalid Credentials"
-					}
+				catch(ex) {
+					next(ex);
 				}
 			});
 			break;
