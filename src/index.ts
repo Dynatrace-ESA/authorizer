@@ -1,5 +1,5 @@
 import express from "express";
-import axios from 'axios';
+import axios, { AxiosStatic } from 'axios';
 import { dynatraceTokenRegex } from "@dt-esa/platform-constants";
 import https from "https";
 
@@ -14,21 +14,26 @@ export interface PermissionMap {
 }
 
 export type AuthenticationOptions = {
+	// All modes
 	mode: 'azure' | 'saml' | 'client' | 'dynatrace',
 	authorizations?: PermissionMap,
 
+	// Client mode
 	clientConnectionPort?: number,
+
+	// Dynatrace mode
 	dynatraceEndpoint?: string,
+	customAxios?: AxiosStatic,
 	scopeMappings?: ScopeMap,
 
+	// Saml mode
 	saml?: any & {},
+	// Azure mode
 	azure?: any & {}
 };
 
-function getTokenPermissions(dtUrl: string, token: string): Promise<any> {
-    console.info(`Checking token permissions via ${dtUrl}api/v1/tokens/lookup/${token.replace(/\..+$/, '')}`);
-    
-    return axios.post(dtUrl + `api/v1/tokens/lookup`, { token },
+function getTokenPermissions(dtUrl: string, token: string, customAxios: AxiosStatic = axios): Promise<any> {
+	return customAxios.post(dtUrl + `api/v1/tokens/lookup`, { token },
         {
             httpsAgent: new https.Agent({
                 rejectUnauthorized: false
@@ -65,6 +70,7 @@ function getTokenPermissions(dtUrl: string, token: string): Promise<any> {
  *     azure?: Object,     // Azure configuration object provided to "passport-azure-ad"
  *     clientConnectionPort?: number, // When mode is `client`, the port that the seperate webserver authorizing transactions is running on.
  *     dynatraceEndpoint?:    string  // The URL that the Authorizer will check against for Dynatrace Authorization.
+ *     customAxios?:   	      AxiosStatic // An optional axios client.
  *	   scopeMappings?: Map<string, Array<string>>, // A mapping of scope ID from the Dynatrace API to your router. This is only used in "dynatrace" mode.
  * 
  * }
@@ -239,15 +245,26 @@ export const authentication = (options: AuthenticationOptions) => {
 						delete usercache[token];
 					}
 
+					const tokenId = token.length > 40 ? token.split('.').slice(0, 2).join('.') : (token.slice(0, 4) + "*****************");
+
 					if(usercache[token]) {
-						req._username = token.length > 40 ? token.split('.').slice(0,2).join('.') : (token.slice(0,4) + "*****************");
+						req._username = tokenId;
 						req._authorizedScopes = usercache[token];
 						req._scopeMapping = options.scopeMappings;
 						return next();
 					}
 					else {
-						return getTokenPermissions(options.dynatraceEndpoint, token).then(({ data }) => {
+						let dtUrl = options.dynatraceEndpoint;
+						if (!dtUrl.endsWith('/')) dtUrl += '/';
+						if (!dtUrl.startsWith('https://')) dtUrl = "https://" + dtUrl;
+
+						console.info(`Checking token permissions via ${dtUrl}api/v1/tokens/lookup/${tokenId}`);
+
+						return getTokenPermissions(dtUrl, token, options.customAxios).then(({ data }) => {
+							console.info(`Recieved token permissions via ${dtUrl}api/v1/tokens/lookup/${tokenId}`);
+
 							if (!data) {
+								console.warn(`Failed to validate token ${dtUrl}api/v1/tokens/lookup/${tokenId}`);
 								throw { 
 									status: 401, 
 									message: "Could not validate token" 
@@ -255,6 +272,7 @@ export const authentication = (options: AuthenticationOptions) => {
 							}
 	
 							if (data.revoked == true) {
+								console.warn(`Token is revoked ${dtUrl}api/v1/tokens/lookup/${tokenId}`);
 								throw { 
 									status: 401, 
 									message: "Token is revoked" 
@@ -262,6 +280,7 @@ export const authentication = (options: AuthenticationOptions) => {
 							}
 	
 							if (data.expires && (data.expires > new Date().getTime())) {
+								console.warn(`Token is expired ${dtUrl}api/v1/tokens/lookup/${tokenId}`);
 								throw { 
 									status: 401, 
 									message: "Token is expired" 
@@ -271,7 +290,7 @@ export const authentication = (options: AuthenticationOptions) => {
 							// Timestamp when this was added into the cache
 							data.scopes._storeTime = new Date().getTime();
 							
-							req._username = token.length > 40 ? token.split('.').slice(0,2).join('.') : (token.slice(0,4) + "*****************");
+							req._username = tokenId;
 							req._authorizedScopes = usercache[token] = data.scopes;
 							req._scopeMapping = options.scopeMappings;
 	
@@ -280,9 +299,10 @@ export const authentication = (options: AuthenticationOptions) => {
 					}
 				}
 				else {
+					// Invalid or missing API token
 					throw {
 						status: 401,
-						message: "Invalid Credentials."
+						message: "Invalid Credentials"
 					}
 				}
 			});
