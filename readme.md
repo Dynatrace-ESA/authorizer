@@ -4,6 +4,8 @@ This package provides passport handling for authorization and scope correlation.
 
 Intended for use in Dynatrace ESA Solutions.
 
+A dependency map can be found [here](https://npmgraph.js.org/?q=@dt-esa/authorizer).
+
 ```ts
 import express, { Express } from 'express';
 import cookieParser from 'cookie-parser';
