@@ -22,7 +22,7 @@ export const Client = (router, options) => {
             const locallyAppliedPermissions = options.authorizations
                 ? options.authorizations[data.name]
                 : [] || []; // Always default as an empty array.
-            req._username = data.name;
+            req._username = data.name.toLowerCase();
             req._authorizedScopes = data.permissions.concat(locallyAppliedPermissions);
             return next();
         });

@@ -5,6 +5,27 @@ import { OpenId } from "./flows/openid";
 import { Saml } from "./flows/saml";
 import passport from 'passport';
 import express from 'express';
+import { AxiosInstance } from "axios";
+import { ConfigParams } from "express-openid-connect";
+import { ScopeMap } from "./dynatrace-scopes";
+
+export interface PermissionMap {
+    [key: string]: Array<string>;
+}
+export type AuthenticationOptions = {
+    authorizations?: PermissionMap;
+    scopeMappings?: ScopeMap;
+    saml?: any;
+    openid?: ConfigParams;
+    dynatrace?: {
+        endpoint: string;
+        customAxios?: AxiosInstance;
+    };
+    client?: {
+        port: number;
+        timeout: number;
+    };
+};
 
 /**
  * Connect-style middleware that sets up SSO authorization via passport.
@@ -49,12 +70,21 @@ import express from 'express';
  *  - `_scopeMapping`:     Map<string, Array<string>>
  *  - `_authorizedScopes`: Array<string>
  */
-export const authentication = (port, options) => {
+export const authentication = (options) => {
+    const port = options.sessionSyncPort || 6800;
     const router: any = express.Router();
     const cache = new SessionStoreClient(port, "@dynatrace-esa/authorizer");
+
+    options.authorizations = options.authorizations || [];
+    // Reference ALL users with lowercase Ids.
+    Object.keys(options.authorizations).forEach(userId => {
+        options.authorizations[userId.toLowerCase()] = options.authorizations[userId];
+    })
+
     // Initialize Passport.
     router.use(passport.initialize());
     router.use(passport.session());
+
     // Allow us to use multiple flows at the same time.
     if (options.dynatrace)
         Dynatrace(router, cache, options.dynatrace);
@@ -64,6 +94,7 @@ export const authentication = (port, options) => {
         OpenId(router, cache, options.openid);
     if (options.client)
         Client(router, options.client);
+
     // By this point, all of the authorization flows are registered.
     // If we have a session, we are already logged in and the request is decorated.
     // All paths that have a session log out this way.
@@ -74,14 +105,16 @@ export const authentication = (port, options) => {
             res.redirect('/');
         });
     });
+
     router.use((req, res, next) => {
         // Decorate all SSO login flows.
         // Dynatrace flow will add scopes automatically.
         req._authorizedScopes = req._authorizedScopes || [];
         req._authorizedScopes =
-            req._authorizedScopes.concat(options.authorizations ? options.authorizations[req._username] || [] : []);
+            req._authorizedScopes.concat(options.authorizations[req._username?.toLowerCase()] || []);
         next();
     });
+
     // Single endpoint to get authorized user permissions.
     router.get('/authorization', (req, res, next) => {
         // Calculate and return all of the authorized scopes.
@@ -126,16 +159,19 @@ export const authorize = (permissions = []) => {
         }
         const scopeMapping = req._scopeMapping || {};
         const authorizedScopes = req._authorizedScopes;
+
         // Calculate ALL grants the request has if there is a mapping specified.
         const mappedScopes = Object.keys(scopeMapping).flatMap(key => {
             return authorizedScopes[key] ? scopeMapping[key] : [];
         });
         const userScopes = authorizedScopes.concat(mappedScopes);
         const missingScopes = permissions.filter(p => !userScopes.includes(p));
+
         // We have all of the scopes we need.
         if (missingScopes.length == 0) {
             return next();
         }
+
         // We aren't allowed to do this.
         else {
             return next({
