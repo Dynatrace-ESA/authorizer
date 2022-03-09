@@ -110,8 +110,8 @@ export const authentication = (options) => {
         // Decorate all SSO login flows.
         // Dynatrace flow will add scopes automatically.
         req._authorizedScopes = req._authorizedScopes || [];
-        req._authorizedScopes =
-            req._authorizedScopes.concat(options.authorizations[req._username?.toLowerCase()] || []);
+        req._authorizedScopes = (options.authorizations[req._username && req._username.toLowerCase()] || []).concat(req._authorizedScopes || []);
+
         next();
     });
 
