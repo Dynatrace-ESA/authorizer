@@ -34,7 +34,7 @@ export const OpenId = (router, cache, options) => {
     router.use(auth(options));
     router.use((req, res, next) => {
         if (req.oidc && req.oidc.user)
-            req._username = req.oidc.user.upn.toLowerCase();
+            req._username = req.oidc.user.upn?.toLowerCase();
         next();
     });
 };
