@@ -1,4 +1,4 @@
-import { SessionStoreClient, SharedSessionStore } from "@dt-esa/level-cluster";
+import { SessionStoreClient, SessionStoreOptions, SharedSessionStore } from "@dt-esa/level-cluster";
 import { Client } from "./flows/client";
 import { Dynatrace } from "./flows/dynatrace";
 import { OpenId } from "./flows/openid";
@@ -71,6 +71,7 @@ export type AuthenticationOptions = {
  *  - `_authorizedScopes`: Array<string>
  */
 export const authentication = (options) => {
+
     const port = options.sessionSyncPort || 6800;
     const router: any = express.Router();
     const cache = new SessionStoreClient(port, "@dynatrace-esa/authorizer");
@@ -117,20 +118,25 @@ export const authentication = (options) => {
 
     // Single endpoint to get authorized user permissions.
     router.get('/authorization', (req, res, next) => {
+
         // Calculate and return all of the authorized scopes.
         if (req._username) {
             const scopeMapping = req._scopeMapping || {};
             const authorizedScopes = req._authorizedScopes || [];
             // Calculate ALL grants the request has if there is a mapping specified.
+
             const mappedScopes = Object.keys(scopeMapping).flatMap(key => {
                 return authorizedScopes[key] ? scopeMapping[key] : [];
             });
+
             const userScopes = authorizedScopes.concat(mappedScopes);
+
             return res.send({
                 name: req._username,
                 permissions: userScopes
             });
         }
+
         // Our request isn't authorized. Reject.
         next({
             status: 401,
@@ -192,7 +198,7 @@ export const authorize = (permissions = []) => {
  * @param port port on which the shared memory store communicates.
  * @param options
  */
-export const SharedUserCache = (port, options) => {
+export const SharedUserCache = (port, options: SessionStoreOptions = {}) => {
     // We will always use the authorizer cache id. This will prevent collisions with other 
     // packages that need to use a cache.
     options.instanceId = "@dynatrace-esa/authorizer";
