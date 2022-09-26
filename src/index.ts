@@ -140,7 +140,8 @@ export const authentication = (options) => {
         // Our request isn't authorized. Reject.
         next({
             status: 401,
-            message: 'Authorization could not be established.',
+            message: 'Authorization could not be established. Are you logged in?',
+            body: 'Check your authorizations.json file and make sure you are logged in.'
         });
     });
     return router;
