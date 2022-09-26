@@ -38,7 +38,7 @@
     "@dt-esa/platform-constants": "^1.1.0",
     "axios": "^0.26.0",
     "express-openid-connect": "^2.6.0",
-    "passport": "^0.5.2",
+    "passport": "^0.6.0",
     "passport-saml": "^3.2.1"
   }
 }
