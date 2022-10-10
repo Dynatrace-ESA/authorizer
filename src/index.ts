@@ -25,6 +25,11 @@ export type AuthenticationOptions = {
         port: number;
         timeout: number;
     };
+    cache?: {
+        get: (key: string) => Promise<void>
+        put: (key: string, value: any) => Promise<void>
+        delete: (key: string) => Promise<void>
+    }
 };
 
 /**
@@ -74,7 +79,7 @@ export const authentication = (options) => {
 
     const port = options.sessionSyncPort || 6800;
     const router: any = express.Router();
-    const cache = new SessionStoreClient(port, "@dynatrace-esa/authorizer");
+    const cache = options.cache || new SessionStoreClient(port, "@dynatrace-esa/authorizer");
 
     options.authorizations = options.authorizations || [];
     // Reference ALL users with lowercase Ids.
