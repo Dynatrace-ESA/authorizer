@@ -1,6 +1,6 @@
 {
   "name": "@dt-esa/authorizer",
-  "version": "2.3.0",
+  "version": "2.3.1",
   "description": "",
   "main": "./dist/index.js",
   "files": [
@@ -39,6 +39,6 @@
     "axios": "^0.26.0",
     "express-openid-connect": "^2.6.0",
     "passport": "^0.6.0",
-    "passport-saml": "^3.2.1"
+    "passport-saml": "^3.1.1"
   }
 }
